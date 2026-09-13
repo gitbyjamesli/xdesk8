@@ -226,16 +226,16 @@ fn update_server_lost() -> bool {
 ///
 /// Only the given ports and the public key are taken over, everything else is kept as is.
 fn apply_config(info: &LanServerInfo) {
-    apply_option(
+    apply_config_option(
         keys::OPTION_CUSTOM_RENDEZVOUS_SERVER,
         &format!("{}:{}", info.ip, info.id_server_port),
     );
-    apply_option(
+    apply_config_option(
         keys::OPTION_RELAY_SERVER,
         &format!("{}:{}", info.ip, info.relay_server_port),
     );
     if !info.pub_key.is_empty() {
-        apply_option(keys::OPTION_KEY, &info.pub_key);
+        apply_config_option(keys::OPTION_KEY, &info.pub_key);
     }
 }
 
@@ -243,7 +243,7 @@ fn apply_config(info: &LanServerInfo) {
 ///
 /// The same path as the settings UI is used, which shares the options with the server process,
 /// so a changed ID server restarts the rendezvous mediator automatically.
-fn apply_option(key: &str, value: &str) {
+fn apply_config_option(key: &str, value: &str) {
     if Config::get_option(key) == value {
         return;
     }
