@@ -273,6 +273,12 @@ fn notify_ui(info: Option<&LanServerInfo>) {
         });
         match serde_json::to_string(&evt) {
             Ok(data) => {
+                let channels = crate::flutter::get_global_event_channels();
+                if channels.is_empty() {
+                    log::warn!("LAN server event is not delivered, no UI event channel is listening");
+                } else {
+                    log::debug!("LAN server event pushed to UI, channels: {channels:?}");
+                }
                 let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data);
             }
             Err(err) => log::error!("failed to serialize LAN server event: {err}"),

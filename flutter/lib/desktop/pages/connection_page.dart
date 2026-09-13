@@ -132,16 +132,19 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
             // The server found in the local network, see `src/lan_server_discovery.rs`.
             if (stateGlobal.lanServerIp.value.isNotEmpty)
               Flexible(
-                child: Text(
-                  '${translate('Found LAN server')}: '
-                  '${stateGlobal.lanServerIp.value}, '
-                  '${translate('Ports')}: '
-                  '${stateGlobal.lanServerIdServerPort.value}, '
-                  '${stateGlobal.lanServerRelayServerPort.value}',
-                  style: TextStyle(fontSize: em),
-                  overflow: TextOverflow.ellipsis,
+                child: Padding(
+                  padding: EdgeInsets.only(left: em),
+                  child: Text(
+                    '${translate('Found LAN server')}: '
+                    '${stateGlobal.lanServerIp.value}, '
+                    '${translate('Ports')}: '
+                    '${stateGlobal.lanServerIdServerPort.value}, '
+                    '${stateGlobal.lanServerRelayServerPort.value}',
+                    style: TextStyle(fontSize: em),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ).marginOnly(left: em),
+              ),
             // stop
             if (!isIncomingOnly) startServiceWidget(),
             // ready && public
