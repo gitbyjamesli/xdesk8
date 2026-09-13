@@ -1738,6 +1738,29 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
                     }
                   },
                 ),
+              // The client only listens for the server which is announced in the local network
+              // while this option is enabled, see `src/lan_server_discovery.rs`.
+              if (!isWeb) divider,
+              if (!isWeb)
+                listTile(
+                  icon: Icons.lan_outlined,
+                  title: 'LAN Server Priority',
+                  showTooltip: true,
+                  tooltipMessage: 'lan-server-priority-tip',
+                  trailing: Switch(
+                    value: bind.mainGetOptionSync(
+                            key: kOptionLanServerPriority) ==
+                        'Y',
+                    onChanged: locked || isOptionFixed(kOptionLanServerPriority)
+                        ? null
+                        : (value) async {
+                            await bind.mainSetOption(
+                                key: kOptionLanServerPriority,
+                                value: value ? 'Y' : 'N');
+                            setState(() {});
+                          },
+                  ),
+                ),
             ],
           ),
         ),

@@ -159,7 +159,7 @@ const CHARS: &[char] = &[
 //pub const RENDEZVOUS_SERVERS: &[&str] = &["rs-ny.rustdesk.com"];
 //pub const RS_PUB_KEY: &str = "OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=";
 pub const RENDEZVOUS_SERVERS: &[&str] = &["xdeskdev.com"];
-pub const RS_PUB_KEY: &str = "CoQBOwob48IBzrXEjYWvR0mBZBW8K2zaAvytboHIn88=";
+pub const RS_PUB_KEY: &str = "6KWkCz69aSqkuGRMBSPrs9zBAFtRw2iCU8z7J7sJ808=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
 pub const RELAY_PORT: i32 = 21117;
@@ -2858,6 +2858,10 @@ pub mod keys {
     /// - If unset, negative, or non-integer, no explicit limit is enforced for backward compatibility.
     pub const OPTION_FILE_TRANSFER_MAX_FILES: &str = "file-transfer-max-files";
     pub const OPTION_DISABLE_UDP: &str = "disable-udp";
+    /// Prefer the server announced in the local network, see `src/lan_server_discovery.rs`.
+    ///
+    /// Key: `lan-server-priority`. Value: `Y` (enabled) or `N` (disabled).
+    pub const OPTION_LAN_SERVER_PRIORITY: &str = "lan-server-priority";
     pub const OPTION_ALLOW_INSECURE_TLS_FALLBACK: &str = "allow-insecure-tls-fallback";
     pub const OPTION_SHOW_VIRTUAL_MOUSE: &str = "show-virtual-mouse";
     // joystick is the virtual mouse.

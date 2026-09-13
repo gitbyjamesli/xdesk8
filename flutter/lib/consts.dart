@@ -170,6 +170,7 @@ const String kOptionEnableShowTerminalExtraKeys = "enable-show-terminal-extra-ke
 const String kOptionAllowWebSocket = "allow-websocket";
 const String kOptionAllowInsecureTLSFallback = "allow-insecure-tls-fallback";
 const String kOptionDisableUdp = "disable-udp";
+const String kOptionLanServerPriority = "lan-server-priority";
 const String kOptionEnableFlutterHttpOnRust = "enable-flutter-http-on-rust";
 
 // builtin options
@@ -684,3 +685,7 @@ extension WindowsTargetExt on int {
 }
 
 const kCheckSoftwareUpdateFinish = 'check_software_update_finish';
+
+/// Event pushed by the Rust core when a server is found in the local network, see
+/// `src/lan_server_discovery.rs`.
+const kLanServerDiscovered = 'lan_server';

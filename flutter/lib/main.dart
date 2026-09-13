@@ -574,6 +574,18 @@ _registerEventHandler() {
     platformFFI.registerEventHandler('native_ui', 'native_ui', (evt) async {
       NativeUiHandler.instance.onEvent(evt);
     });
+    // The server found in the local network, see `src/lan_server_discovery.rs`.
+    platformFFI.registerEventHandler(kLanServerDiscovered, kLanServerDiscovered,
+        (evt) async {
+      final ip = evt['ip'];
+      stateGlobal.lanServerIp.value = ip is String ? ip : '';
+      final idServerPort = evt['id_server_port'];
+      stateGlobal.lanServerIdServerPort.value =
+          idServerPort is int ? idServerPort : 0;
+      final relayServerPort = evt['relay_server_port'];
+      stateGlobal.lanServerRelayServerPort.value =
+          relayServerPort is int ? relayServerPort : 0;
+    });
   }
 }
 

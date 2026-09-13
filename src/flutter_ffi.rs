@@ -80,6 +80,8 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     {
         // core_main's init_log does not work for flutter since it is only applied to its load_library in main.c
         hbb_common::init_log(false, "flutter_ffi");
+        // Listen for the server announced in the local network, only if the user enabled it.
+        crate::lan_server_discovery::apply_option();
     }
 }
 
@@ -982,6 +984,8 @@ pub fn main_set_option(key: String, value: String) {
     // No need to check if https proxy is used, because this option does not change frequently
     // and restarting mediator is safe even https proxy is not used.
     let is_allow_tls_fallback = key.eq(config::keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let is_lan_server_priority = key.eq(config::keys::OPTION_LAN_SERVER_PRIORITY);
     if is_allow_tls_fallback
         || key.eq("custom-rendezvous-server")
         || key.eq(config::keys::OPTION_ALLOW_WEBSOCKET)
@@ -998,6 +1002,13 @@ pub fn main_set_option(key: String, value: String) {
         crate::common::test_rendezvous_server();
     } else {
         set_option(key, value.clone());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        // Start or stop the LAN server discovery, the option is stored above.
+        if is_lan_server_priority {
+            crate::lan_server_discovery::apply_option();
+        }
     }
 }
 

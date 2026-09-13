@@ -13,6 +13,8 @@ mod server;
 pub use self::server::*;
 mod client;
 mod lan;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod lan_server_discovery;
 #[cfg(not(any(target_os = "ios")))]
 mod rendezvous_mediator;
 #[cfg(not(any(target_os = "ios")))]

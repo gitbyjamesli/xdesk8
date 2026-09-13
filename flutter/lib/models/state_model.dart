@@ -27,6 +27,12 @@ class StateGlobal {
 
   final updateUrl = ''.obs;
 
+  /// The server found in the local network by the Rust core, empty if there is none.
+  /// See `src/lan_server_discovery.rs`.
+  final lanServerIp = ''.obs;
+  final lanServerIdServerPort = 0.obs;
+  final lanServerRelayServerPort = 0.obs;
+
   String _inputSource = '';
 
   // Track relative mouse mode state for each peer connection.
