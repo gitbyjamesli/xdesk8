@@ -3,9 +3,12 @@
 //! The server periodically broadcasts a JSON message to `255.255.255.255:8888`, e.g.
 //! `{"service":"xdesk_server","id_server_port":25556,"relay_server_port":25557,"pub_key":"...","ver":"1.0"}`.
 //!
-//! When the option `lan-server-priority` is enabled, the client listens on the same UDP port,
-//! applies the announced ID server, relay server and public key, and reports the result to the
-//! UI. The client can therefore match the server without any manual configuration.
+//! When the option `lan-server-priority` is enabled, the client listens on the same UDP port and
+//! uses the announced ID server, relay server and public key for the current session only.
+//!
+//! The options are never stored to the configuration file and they are dropped again when no
+//! announcement is received for `SERVER_LOST_TIMEOUT`, then the previously configured server is
+//! used again. The discovered server is also reported to the UI.
 
 use hbb_common::{
     anyhow::anyhow,
@@ -14,6 +17,7 @@ use hbb_common::{
 };
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -35,8 +39,10 @@ pub const EVENT_LAN_SERVER: &str = "lan_server";
 /// Blocking read timeout of the listening socket, only used to check for a lost server.
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// The server is considered gone when nothing is received for this long.
-const SERVER_LOST_TIMEOUT: Duration = Duration::from_secs(10);
+/// The server is considered gone when nothing is received for this long. The announced server is
+/// only used for the current session, after this long without announcement the previously
+/// configured server is used again.
+const SERVER_LOST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// Do not refresh the UI more often than this when the announced data does not change.
 const MIN_UI_PUSH_INTERVAL: Duration = Duration::from_secs(5);
@@ -165,14 +171,16 @@ fn listen() -> ResultType<()> {
             last_push = None;
             if update_server_lost() {
                 log::info!("LAN server is gone");
+                clear_config();
                 notify_ui(None);
             }
         }
     }
-    // The applied options are kept, only the discovered server is forgotten.
+    // The discovery was disabled, stop using the temporary configuration.
     if update_server_lost() {
         notify_ui(None);
     }
+    clear_config();
     Ok(())
 }
 
@@ -221,34 +229,40 @@ fn update_server_lost() -> bool {
     guard.take().is_some()
 }
 
-/// Apply the announced server to the configuration, so that the client matches the server
+/// Use the announced server for the current session, so that the client matches the server
 /// automatically.
 ///
-/// Only the given ports and the public key are taken over, everything else is kept as is.
+/// The options are temporary, they are never stored to the configuration file and they are
+/// dropped when the server is not announced any more (see `SERVER_LOST_TIMEOUT`), then the
+/// previously configured server is used again.
 fn apply_config(info: &LanServerInfo) {
-    apply_config_option(
-        keys::OPTION_CUSTOM_RENDEZVOUS_SERVER,
-        &format!("{}:{}", info.ip, info.id_server_port),
+    let id_server = format!("{}:{}", info.ip, info.id_server_port);
+    let relay_server = format!("{}:{}", info.ip, info.relay_server_port);
+    let mut options = HashMap::new();
+    options.insert(
+        keys::OPTION_CUSTOM_RENDEZVOUS_SERVER.to_owned(),
+        id_server.clone(),
     );
-    apply_config_option(
-        keys::OPTION_RELAY_SERVER,
-        &format!("{}:{}", info.ip, info.relay_server_port),
-    );
+    options.insert(keys::OPTION_RELAY_SERVER.to_owned(), relay_server.clone());
     if !info.pub_key.is_empty() {
-        apply_config_option(keys::OPTION_KEY, &info.pub_key);
+        options.insert(keys::OPTION_KEY.to_owned(), info.pub_key.clone());
     }
-}
-
-/// Apply a single option if it is not set to `value` yet.
-///
-/// The same path as the settings UI is used, which shares the options with the server process,
-/// so a changed ID server restarts the rendezvous mediator automatically.
-fn apply_config_option(key: &str, value: &str) {
-    if Config::get_option(key) == value {
+    if Config::get_temporary_options() == options {
         return;
     }
-    log::info!("Apply LAN server option: {key}={value}");
-    crate::ui_interface::set_option(key.to_owned(), value.to_owned());
+    log::info!(
+        "Use the LAN server for this session: id_server={id_server}, relay_server={relay_server}"
+    );
+    crate::ui_interface::set_temporary_options(options);
+}
+
+/// Stop using the announced server, the configured server is used again.
+fn clear_config() {
+    if Config::get_temporary_options().is_empty() {
+        return;
+    }
+    log::info!("The LAN server is dropped, the configured server is used again");
+    crate::ui_interface::set_temporary_options(HashMap::new());
 }
 
 /// Send the announced server to the UI, `None` clears it.

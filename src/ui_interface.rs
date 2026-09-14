@@ -161,6 +161,11 @@ pub fn refresh_options() {
 
 #[inline]
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
+    // The options which are not stored (see `set_temporary_options`) are not part of the local
+    // map, but they are the values in use.
+    if let Some(v) = Config::get_temporary_option(key.as_ref()) {
+        return v;
+    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let map = OPTIONS.lock().unwrap();
@@ -349,6 +354,11 @@ pub fn get_options() -> String {
     for (k, v) in options.iter() {
         m.insert(k.into(), v.to_owned().into());
     }
+    // The options which are used for the current session only are not part of the map, but they
+    // are the values in use, so the settings dialog shows them.
+    for (k, v) in Config::get_temporary_options().iter() {
+        m.insert(k.into(), v.to_owned().into());
+    }
     serde_json::to_string(&m).unwrap_or_default()
 }
 
@@ -416,6 +426,19 @@ pub fn set_options(m: HashMap<String, String>) {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     Config::set_options(m);
+}
+
+/// Apply options which are used by the current session only, on this process and on the server
+/// process. They are never stored to the configuration file, an empty map clears them.
+#[inline]
+pub fn set_temporary_options(options: HashMap<String, String>) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        // The server process applies them on its side and restarts the rendezvous mediator when
+        // the effective ID server changes.
+        let _ = ipc::set_temporary_options(options.clone());
+    }
+    Config::set_temporary_options(options);
 }
 
 #[inline]

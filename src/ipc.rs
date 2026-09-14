@@ -258,6 +258,10 @@ pub enum Data {
     OnlineStatus(Option<(i64, bool)>),
     Config((String, Option<String>)),
     Options(Option<HashMap<String, String>>),
+    /// Options which are used by the current session only, they are never stored to the
+    /// configuration file. `None` or an empty map clears them, see
+    /// `Config::set_temporary_options`.
+    TemporaryOptions(Option<HashMap<String, String>>),
     NatType(Option<i32>),
     ConfirmedKey(Option<(Vec<u8>, Vec<u8>)>),
     RawMessage(Vec<u8>),
@@ -735,6 +739,19 @@ async fn handle(data: Data, stream: &mut Connection) {
                 }
                 Config::set_options(value);
                 allow_err!(stream.send(&Data::Options(None)).await);
+            }
+        },
+        Data::TemporaryOptions(value) => match value {
+            // Query the options which are in use for the current session only.
+            None => {
+                let v = Config::get_temporary_options();
+                allow_err!(stream.send(&Data::TemporaryOptions(Some(v))).await);
+            }
+            Some(value) => {
+                // `CheckIfRestart` restarts the rendezvous mediator when the ID server changes.
+                let _chk = CheckIfRestart::new();
+                Config::set_temporary_options(value);
+                allow_err!(stream.send(&Data::TemporaryOptions(None)).await);
             }
         },
         Data::NatType(_) => {
@@ -1371,9 +1388,23 @@ async fn get_options_(ms_timeout: u64) -> ResultType<HashMap<String, String>> {
     c.send(&Data::Options(None)).await?;
     if let Some(Data::Options(Some(value))) = c.next_timeout(ms_timeout).await? {
         Config::set_options(value.clone());
-        Ok(value)
+        let mut result = value;
+        // The options which are used by the server process for the current session only are not
+        // stored there, they are applied to this process as well.
+        // See `Config::set_temporary_options`.
+        if c.send(&Data::TemporaryOptions(None)).await.is_ok() {
+            if let Ok(Some(Data::TemporaryOptions(Some(temporary)))) =
+                c.next_timeout(ms_timeout).await
+            {
+                Config::set_temporary_options(temporary.clone());
+                result.extend(temporary);
+            }
+        }
+        Ok(result)
     } else {
-        Ok(Config::get_options())
+        let mut result = Config::get_options();
+        result.extend(Config::get_temporary_options());
+        Ok(result)
     }
 }
 
@@ -1413,6 +1444,20 @@ pub async fn set_options(value: HashMap<String, String>) -> ResultType<()> {
         c.next_timeout(1000).await.ok();
     }
     Config::set_options(value);
+    Ok(())
+}
+
+/// Apply options which are used by the current session only, on both this process and the server
+/// process. They are never stored to the configuration file, an empty map clears them.
+///
+/// The server process restarts the rendezvous mediator when the effective ID server changes.
+#[tokio::main(flavor = "current_thread")]
+pub async fn set_temporary_options(value: HashMap<String, String>) -> ResultType<()> {
+    if let Ok(mut c) = connect(1000, "").await {
+        c.send(&Data::TemporaryOptions(Some(value.clone()))).await?;
+        c.next_timeout(1000).await.ok();
+    }
+    Config::set_temporary_options(value);
     Ok(())
 }
 

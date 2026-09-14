@@ -114,6 +114,9 @@ lazy_static::lazy_static! {
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
     pub static ref DEFAULT_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
+    /// Options which are used by the current session only, they are never stored to the
+    /// configuration file, see `Config::set_temporary_options`.
+    static ref TEMPORARY_OPTIONS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref OVERWRITE_DISPLAY_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref DEFAULT_LOCAL_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
@@ -121,6 +124,10 @@ lazy_static::lazy_static! {
     pub static ref HARD_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
     pub static ref BUILTIN_SETTINGS: RwLock<HashMap<String, String>> = Default::default();
 }
+
+/// Fast check of `TEMPORARY_OPTIONS`, to keep the common case of `Config::get_option` cheap.
+static HAS_TEMPORARY_OPTIONS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "android")]
 lazy_static::lazy_static! {
@@ -1181,7 +1188,40 @@ impl Config {
         config.store();
     }
 
+    /// Options which are used by the current session only.
+    ///
+    /// They take precedence while they are set but are never stored to the configuration file,
+    /// so they are gone after the application restarts. It is used for the server announced in
+    /// the local network, see `src/lan_server_discovery.rs`. An empty map clears them.
+    pub fn set_temporary_options(options: HashMap<String, String>) {
+        let mut lock = TEMPORARY_OPTIONS.write().unwrap();
+        *lock = options;
+        HAS_TEMPORARY_OPTIONS.store(!lock.is_empty(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn get_temporary_options() -> HashMap<String, String> {
+        TEMPORARY_OPTIONS.read().unwrap().clone()
+    }
+
+    /// A temporary option, `None` if it is not set.
+    ///
+    /// A value which is forced by the custom client configuration always wins.
+    #[inline]
+    pub fn get_temporary_option(k: &str) -> Option<String> {
+        if !HAS_TEMPORARY_OPTIONS.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        if OVERWRITE_SETTINGS.read().unwrap().contains_key(k) {
+            return None;
+        }
+        TEMPORARY_OPTIONS.read().unwrap().get(k).cloned()
+    }
+
     pub fn get_option(k: &str) -> String {
+        // The temporary options are not stored, they take precedence while they are set.
+        if let Some(v) = Self::get_temporary_option(k) {
+            return v;
+        }
         get_or(
             &OVERWRITE_SETTINGS,
             &CONFIG2.read().unwrap().options,

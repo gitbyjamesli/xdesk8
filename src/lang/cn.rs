@@ -729,7 +729,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Disable UDP", "禁用 UDP"),
         ("disable-udp-tip", "控制是否仅使用 TCP。\n启用此选项后，RustDesk 将不再使用 UDP 21116，而是使用 TCP 21116。"),
         ("LAN Server Priority", "局域网服务器优先"),
-        ("lan-server-priority-tip", "监听局域网内服务端广播的 ID 服务器端口、中继服务器端口与公钥，并自动使用。\n服务端需要向 UDP 8888 端口广播公告。"),
+        ("lan-server-priority-tip", "监听局域网内服务端广播的 ID 服务器端口、中继服务器端口与公钥并使用。\n服务端需要向 UDP 8888 端口广播公告。\n这些设置仅临时生效，不会保存；10 分钟收不到广播后会自动恢复原来的设置。"),
         ("server-oss-not-support-tip", "注意：RustDesk 开源服务器 (OSS server) 不包含此功能。"),
         ("input note here", "输入备注"),
         ("note-at-conn-end-tip", "在连接结束时请求备注"),
