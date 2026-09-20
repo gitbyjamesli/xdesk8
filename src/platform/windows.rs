@@ -1845,7 +1845,143 @@ pub fn is_installed() -> bool {
 // Auto-start on login: registry key HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 const REG_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
+/// Whether the running process is the installed version, and not a portable copy.
+///
+/// A portable copy is started from any folder while another (maybe older) version is installed,
+/// `is_installed()` returns true in that case as well.
+fn is_running_installed() -> bool {
+    let (_, _, _, installed_exe) = get_install_info();
+    let installed = match Path::new(&installed_exe).canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    let current = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    current.canonicalize().map(|path| path == installed).unwrap_or(false)
+}
+
+/// Startup folder of the current user,
+/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`.
+fn get_startup_folder() -> Option<PathBuf> {
+    let appdata = std::env::var("APPDATA").ok()?;
+    Some(
+        PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("Startup"),
+    )
+}
+
+/// Shortcut which starts this application when the current user logs in.
+fn get_startup_shortcut() -> Option<PathBuf> {
+    Some(get_startup_folder()?.join(format!("{}.lnk", crate::get_app_name())))
+}
+
+/// Remove the `Run` entry, which is not used for the portable version any more.
+fn remove_autostart_run_key() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok((key, _)) = hkcu.create_subkey(REG_RUN_KEY) {
+        allow_err!(key.delete_value(crate::get_app_name()));
+    }
+}
+
+/// Create the autostart shortcut with `WScript.Shell`, without showing a console window.
+fn create_autostart_shortcut(shortcut: &Path) -> ResultType<()> {
+    let exe = std::env::current_exe()?;
+    let exe = exe.to_string_lossy().to_string();
+    let working_dir = Path::new(&exe)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let shortcut_icon_location = get_shortcut_icon_location("", &exe);
+    let vbs = write_cmds(
+        format!(
+            "
+Set oWS = WScript.CreateObject(\"WScript.Shell\")
+Set oLink = oWS.CreateShortcut(\"{link}\")
+    oLink.TargetPath = \"{exe}\"
+    oLink.WorkingDirectory = \"{working_dir}\"
+    oLink.Description = \"{app_name}\"
+    {shortcut_icon_location}
+oLink.Save
+",
+            link = shortcut.to_string_lossy(),
+            app_name = crate::get_app_name(),
+        ),
+        "vbs",
+        "autostart_shortcut",
+    )?;
+    let vbs = vbs.to_str().unwrap_or("").to_owned();
+    let res = std::process::Command::new("cscript")
+        .arg(&vbs)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    allow_err!(std::fs::remove_file(&vbs));
+    let output = res?;
+    if !shortcut.exists() {
+        bail!(
+            "startup shortcut was not created: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+/// Auto-start on login for the portable version, it is a shortcut in the startup folder.
+///
+/// The registry `Run` key is not used, because the portable version is not installed and the
+/// entry would be started without a working directory.
+fn set_autostart_portable(enabled: bool) -> bool {
+    // An entry which was written by a former version is not used any more.
+    remove_autostart_run_key();
+    let shortcut = match get_startup_shortcut() {
+        Some(path) => path,
+        None => {
+            log::error!("Failed to get the startup folder of the current user");
+            return false;
+        }
+    };
+    if !enabled {
+        if !shortcut.exists() {
+            return true;
+        }
+        return match std::fs::remove_file(&shortcut) {
+            Ok(_) => {
+                log::info!("Autostart shortcut {} removed", shortcut.display());
+                true
+            }
+            Err(err) => {
+                log::error!("Failed to remove {}: {err}", shortcut.display());
+                false
+            }
+        };
+    }
+    if let Some(dir) = shortcut.parent() {
+        if let Err(err) = std::fs::create_dir_all(dir) {
+            log::error!("Failed to create {}: {err}", dir.display());
+            return false;
+        }
+    }
+    match create_autostart_shortcut(&shortcut) {
+        Ok(_) => {
+            log::info!("Autostart shortcut {} created", shortcut.display());
+            true
+        }
+        Err(err) => {
+            log::error!("Failed to create the autostart shortcut: {err}");
+            false
+        }
+    }
+}
+
 pub fn get_autostart() -> bool {
+    if !is_running_installed() {
+        return get_startup_shortcut().map_or(false, |path| path.exists());
+    }
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     if let Ok(key) = hkcu.open_subkey(REG_RUN_KEY) {
         if let Ok(value) = key.get_value::<String, _>(crate::get_app_name()) {
@@ -1856,6 +1992,9 @@ pub fn get_autostart() -> bool {
 }
 
 pub fn set_autostart(enabled: bool) -> bool {
+    if !is_running_installed() {
+        return set_autostart_portable(enabled);
+    }
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let app_name = crate::get_app_name();
     let result = if enabled {
@@ -1866,11 +2005,9 @@ pub fn set_autostart(enabled: bool) -> bool {
                 return false;
             }
         };
-        // When the server service is running (installed mode), the incoming server runs
-        // as a Windows service, so we can auto-start in background tray mode (`--tray`).
-        // For portable / non-installed mode there is no service, and `--tray` only shows a
-        // hidden tray icon without starting the server or any window. In that case launch
-        // the app normally (no args) so the embedded server and UI are started.
+        // The installed version runs the incoming server as a Windows service, so it can
+        // auto-start in background tray mode (`--tray`). The portable version uses a shortcut in
+        // the startup folder instead, see `set_autostart_portable`.
         let cmd = if is_self_service_running() {
             format!("\"{exe}\" --tray")
         } else {
@@ -1883,7 +2020,10 @@ pub fn set_autostart(enabled: bool) -> bool {
             .and_then(|(key, _)| key.delete_value(&app_name))
     };
     match result {
-        Ok(_) => true,
+        Ok(_) => {
+            log::info!("Autostart set to {enabled} with the registry run key");
+            true
+        }
         Err(e) => {
             log::error!("Failed to set autostart to {enabled}: {e}");
             false
