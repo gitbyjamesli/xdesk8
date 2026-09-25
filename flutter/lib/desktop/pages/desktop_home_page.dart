@@ -35,6 +35,9 @@ class DesktopHomePage extends StatefulWidget {
 
 const borderColor = Color(0xFF2F65BA);
 
+/// How long the "not installed" tip is shown before it closes itself after the app starts.
+const autoCloseInstallTipDuration = Duration(seconds: 10);
+
 class _DesktopHomePageState extends State<DesktopHomePage>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   final _leftPaneScrollController = ScrollController();
@@ -49,7 +52,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsInputMonitoring = false;
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
+  Timer? _tipAutoCloseTimer;
   bool isCardClosed = false;
+  bool isInstallTipClosed = false;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -462,12 +467,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
 
     if (isWindows && !bind.isDisableInstallation()) {
       if (!bind.mainIsInstalled()) {
+        if (isInstallTipClosed) {
+          return Container();
+        }
         return buildInstallCard(
             "", bind.isOutgoingOnly() ? "" : "install_tip", "Install",
             () async {
           await rustDeskWinManager.closeAllSubWindows();
           bind.mainGotoInstall();
-        });
+        },
+            closeButton: true,
+            onClose: () => setState(() {
+                  isInstallTipClosed = true;
+                }));
       } else if (bind.mainIsInstalledLowerVersion()) {
         return buildInstallCard(
             "Status", "Your installation is lower version.", "Click to upgrade",
@@ -579,23 +591,30 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       String? help,
       String? link,
       bool? closeButton,
-      String? closeOption}) {
+      String? closeOption,
+      VoidCallback? onClose}) {
     if (bind.mainGetBuildinOption(key: kOptionHideHelpCards) == 'Y' &&
         content != 'install_daemon_tip') {
       return const SizedBox();
     }
+    void doClose() {
+      if (onClose != null) {
+        onClose();
+        return;
+      }
+      setState(() {
+        isCardClosed = true;
+      });
+    }
+
     void closeCard() async {
       if (closeOption != null) {
         await bind.mainSetLocalOption(key: closeOption, value: 'N');
         if (bind.mainGetLocalOption(key: closeOption) == 'N') {
-          setState(() {
-            isCardClosed = true;
-          });
+          doClose();
         }
       } else {
-        setState(() {
-          isCardClosed = true;
-        });
+        doClose();
       }
     }
 
@@ -639,7 +658,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                                 color: Colors.white,
                                 fontWeight: FontWeight.normal,
                                 fontSize: 13),
-                          ).marginOnly(bottom: 20)
+                          ).marginOnly(
+                              bottom: 20, right: closeButton == true ? 16 : 0)
                       ] +
                       (btnText.isNotEmpty
                           ? <Widget>[
@@ -679,14 +699,18 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         ),
         if (closeButton != null && closeButton == true)
           Positioned(
-            top: 18,
-            right: 0,
+            top: 14,
+            right: 6,
             child: IconButton(
               icon: Icon(
                 Icons.close,
                 color: Colors.white,
-                size: 20,
+                size: 18,
               ),
+              padding: const EdgeInsets.all(4),
+              constraints: const BoxConstraints(),
+              visualDensity: VisualDensity.compact,
+              tooltip: translate('Close'),
               onPressed: closeCard,
             ),
           ),
@@ -746,6 +770,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         }
       }
     });
+    // Close the "not installed" tip automatically some time after the app starts.
+    if (isWindows && !bind.isDisableInstallation() && !bind.mainIsInstalled()) {
+      _tipAutoCloseTimer = Timer(autoCloseInstallTipDuration, () {
+        if (mounted && !isInstallTipClosed) {
+          setState(() {
+            isInstallTipClosed = true;
+          });
+        }
+      });
+    }
     Get.put<RxBool>(svcStopped, tag: 'stop-service');
     rustDeskWinManager.registerActiveWindowListener(onActiveWindowChanged);
 
@@ -879,6 +913,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     _uniLinksSubscription?.cancel();
     Get.delete<RxBool>(tag: 'stop-service');
     _updateTimer?.cancel();
+    _tipAutoCloseTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
