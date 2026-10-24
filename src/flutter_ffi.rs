@@ -2356,7 +2356,12 @@ pub fn main_account_auth_result() -> String {
 pub fn main_on_main_window_close() {
     // may called more than one times
     #[cfg(windows)]
-    crate::portable_service::client::drop_portable_service_shared_memory();
+    {
+        crate::portable_service::client::drop_portable_service_shared_memory();
+        // `exit(0)` on the dart side may hang during the engine shutdown and
+        // leave a background process running, terminate it here instead.
+        crate::platform::terminate_process_now();
+    }
 }
 
 pub fn main_current_is_wayland() -> SyncReturn<bool> {

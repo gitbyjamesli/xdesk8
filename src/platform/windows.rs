@@ -47,7 +47,8 @@ use winapi::{
         minwinbase::STILL_ACTIVE,
         processthreadsapi::{
             GetCurrentProcess, GetCurrentProcessId, GetExitCodeProcess, OpenProcess,
-            OpenProcessToken, ProcessIdToSessionId, PROCESS_INFORMATION, STARTUPINFOW,
+            OpenProcessToken, ProcessIdToSessionId, TerminateProcess, PROCESS_INFORMATION,
+            STARTUPINFOW,
         },
         securitybaseapi::{
             AllocateAndInitializeSid, DuplicateToken, EqualSid, FreeSid, GetTokenInformation,
@@ -2415,6 +2416,20 @@ pub fn get_win_key_state() -> bool {
 pub fn quit_gui() {
     std::process::exit(0);
     // unsafe { PostQuitMessage(0) }; // some how not work
+}
+
+/// Terminate the current process without running the shutdown handlers.
+///
+/// `exit(0)` (both in dart and in rust) may hang on windows while the flutter
+/// engine is being torn down: the main window is destroyed and all the other
+/// threads exit, but the process is left behind with a single hung thread, so
+/// the user sees a background process after quitting the app. Terminating the
+/// process directly is the last resort to make sure nothing is left running.
+pub fn terminate_process_now() {
+    log::info!("Terminate the process to make sure it exits");
+    unsafe {
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
 }
 
 pub fn get_user_token(session_id: u32, as_user: bool) -> HANDLE {
